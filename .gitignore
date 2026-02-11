@@ -3,3 +3,7 @@ yolov8n.pt
 yolov8s.pt
 .yoloface
 .yoloface/*
+src/tests/test5.mp4
+
+face_db/*
+face_db/

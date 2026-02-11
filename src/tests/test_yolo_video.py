@@ -1,84 +1,68 @@
+"""Test: YOLOv8 + ByteTrack + YoloFace on a video file via FramePipeline."""
+
+import sys
+import argparse
 import cv2
-from src.modules.yolo_persons import YOLOv8PersonDetector
+
+sys.path.insert(0, ".")
+from frame import FramePipeline
 from src.sources.video_file import VideoFileSource
-from src.modules.bytetrack_tracker import ByteTrackTracker
-from src.modules.yoloface_detector import YoloFaceDetector   # your working class
 
-detector = YOLOv8PersonDetector(model_path="yolov8s.pt", conf=0.2)
-tracker = ByteTrackTracker(frame_rate=10)
-face_detector = YoloFaceDetector(conf=0.25)   # same as webcam
 
-with VideoFileSource("src/tests/test.mp4", target_fps=30) as cam:
-    while True:
-        result = cam.read()
-        if result is None:
-            continue
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Test pipeline on video file")
+    parser.add_argument("--video", type=str, default="src/tests/test5.mp4", help="Video path")
+    parser.add_argument("--model", type=str, default="yolov8s.pt", help="YOLO model")
+    parser.add_argument("--conf", type=float, default=0.25, help="Person confidence")
+    parser.add_argument("--fps", type=int, default=None, help="Target FPS")
+    parser.add_argument("--loop", action="store_true", help="Loop video")
+    parser.add_argument("--no-face", action="store_true", help="Skip face detection")
+    parser.add_argument("--show-motion", action="store_true", help="Show motion boxes")
+    parser.add_argument("--max-dim", type=int, default=1280,
+                        help="Max detection resolution (downscale large frames)")
+    args = parser.parse_args()
 
-        success, frame = result
-        if not success:
-            break
+    pipeline = FramePipeline(
+        model_path=args.model,
+        person_conf=args.conf,
+        use_motion=True,
+        use_smoothing=True,
+        use_face_detection=not args.no_face,
+        show_hud=True,
+        show_motion_boxes=args.show_motion,
+        max_detect_dim=args.max_dim,
+        face_every_n_frames=3,
+        max_faces_per_frame=5,
+    )
 
-        h, w = frame.shape[:2]
-
-        # Step 1: Detect persons
-        persons = detector.detect(frame)
-
-        # Step 2: Track persons
-        tracks = tracker.update(persons, (h, w))
-
-        for t in tracks:
-            x1, y1, x2, y2 = t["box"]
-            pid = t["id"]
-
-            # Draw person box + ID
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(
-                frame,
-                f"P_{pid}",
-                (x1, max(0, y1 - 10)),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (0, 255, 0),
-                2,
-            )
-
-            # === NEW: PER-PERSON YoloFace on VIDEO ===
-            person_crop = frame[y1:y2, x1:x2]
-
-            # Skip empty crops (safety)
-            if person_crop.size == 0:
+    with VideoFileSource(args.video, target_fps=args.fps, loop=args.loop) as src:
+        w, h = src.get_resolution()
+        print(f"Video: {args.video}  res={w}x{h}  fps={src.actual_fps:.1f}")
+        if max(w, h) > args.max_dim:
+            s = args.max_dim / max(w, h)
+            print(f"  → Detection downscaled to {int(w*s)}x{int(h*s)} for speed")
+        while True:
+            result = src.read()
+            if result is None:
                 continue
+            ok, frame = result
+            if not ok:
+                break
 
-            faces = face_detector.detect(person_crop)
+            out = pipeline.process(frame)
+            cv2.imshow("Video Pipeline Test", out.frame)
 
-            for (fx1, fy1, fx2, fy2, fconf) in faces:
-                # Convert face coords back to full frame
-                abs_x1 = x1 + fx1
-                abs_y1 = y1 + fy1
-                abs_x2 = x1 + fx2
-                abs_y2 = y1 + fy2
+            key = cv2.waitKey(1) & 0xFF
+            if key == 27 or key == ord("q"):
+                break
 
-                # Draw face box (blue)
-                cv2.rectangle(
-                    frame,
-                    (abs_x1, abs_y1),
-                    (abs_x2, abs_y2),
-                    (255, 0, 0),
-                    2,
-                )
-                cv2.putText(
-                    frame,
-                    f"face {fconf:.2f}",
-                    (abs_x1, max(0, abs_y1 - 5)),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    (255, 0, 0),
-                    2,
-                )
+    det = pipeline.detector.get_stats()
+    trk = pipeline.tracker.get_stats()
+    print(f"\nDetector stats: {det}")
+    print(f"Tracker  stats: {trk}")
+    print(f"Source   stats: {src.get_stats()}")
+    cv2.destroyAllWindows()
 
-        cv2.imshow("YOLOv8 + ByteTrack + YoloFace Video", frame)
 
-        if cv2.waitKey(1) & 0xFF == 27:
-            break
-
-cv2.destroyAllWindows()
+if __name__ == "__main__":
+    main()

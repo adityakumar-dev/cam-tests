@@ -1,0 +1,24 @@
+# Core
+opencv-python>=4.8.0
+numpy>=1.24.0
+ultralytics>=8.0.0
+torch>=2.0.0
+
+# Tracking
+bytetracker>=0.3.0
+
+# Face detection (existing)
+yoloface>=0.0.4
+
+# Face embedding / re-identification
+face_recognition>=1.3.0
+dlib>=19.24.0
+
+# Web server
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+websockets>=12.0
+python-multipart>=0.0.6
+
+# Database
+# (uses built-in sqlite3)

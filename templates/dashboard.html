@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Person Detection & Face Re-ID Dashboard</title>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d27;
+            --surface2: #242836;
+            --accent: #00d4aa;
+            --accent2: #7c5cfc;
+            --warn: #ff6b6b;
+            --text: #e4e6ef;
+            --text-dim: #8b8fa3;
+            --border: #2d3148;
+            --success: #00d4aa;
+            --new-person: #ff9f43;
+            --returned: #00d4aa;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ── Header ─────────────────── */
+        .header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .header h1 .dot {
+            width: 8px; height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .header-stats {
+            display: flex;
+            gap: 20px;
+            font-size: 13px;
+            color: var(--text-dim);
+        }
+        .header-stats .stat-value {
+            color: var(--accent);
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .ws-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+        }
+        .ws-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--warn);
+            transition: background 0.3s;
+        }
+        .ws-dot.connected { background: var(--success); }
+
+        /* ── Main layout ─────────────── */
+        .main {
+            display: grid;
+            grid-template-columns: 1fr 360px;
+            grid-template-rows: auto 1fr;
+            gap: 16px;
+            padding: 16px;
+            height: calc(100vh - 56px);
+        }
+
+        /* ── Video feed ─────────────── */
+        .video-section {
+            grid-row: 1 / 3;
+            background: var(--surface);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+        .video-title {
+            padding: 10px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-dim);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .video-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            position: relative;
+        }
+        .video-container img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        .video-overlay {
+            position: absolute;
+            bottom: 12px;
+            left: 12px;
+            display: flex;
+            gap: 8px;
+        }
+        .overlay-badge {
+            background: rgba(0,0,0,0.75);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            color: var(--accent);
+            backdrop-filter: blur(4px);
+        }
+
+        /* ── Sidebar panels ────────── */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            overflow: hidden;
+        }
+
+        .panel {
+            background: var(--surface);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .panel-header {
+            padding: 10px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-dim);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .panel-count {
+            background: var(--accent);
+            color: var(--bg);
+            padding: 1px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        .panel-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        /* ── Active persons panel ──── */
+        .active-panel { flex: 0 0 auto; max-height: 200px; }
+
+        .person-card {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            margin-bottom: 4px;
+            transition: background 0.2s;
+        }
+        .person-card:hover { background: var(--surface2); }
+        .person-avatar {
+            width: 36px; height: 36px;
+            border-radius: 8px;
+            background: var(--surface2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--accent);
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+        .person-avatar img {
+            width: 100%; height: 100%;
+            object-fit: cover;
+        }
+        .person-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .person-name {
+            font-size: 13px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .person-meta {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+        .person-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+        .badge-active {
+            background: rgba(0, 212, 170, 0.15);
+            color: var(--success);
+        }
+        .badge-visits {
+            background: rgba(124, 92, 252, 0.15);
+            color: var(--accent2);
+        }
+
+        /* ── Gallery panel ─────────── */
+        .gallery-panel { flex: 1; min-height: 0; }
+
+        .gallery-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            padding: 4px;
+        }
+        .gallery-item {
+            background: var(--surface2);
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: 1px solid transparent;
+        }
+        .gallery-item:hover {
+            transform: scale(1.04);
+            border-color: var(--accent);
+            box-shadow: 0 4px 20px rgba(0, 212, 170, 0.15);
+        }
+        .gallery-thumb {
+            width: 100%;
+            aspect-ratio: 1;
+            object-fit: cover;
+            display: block;
+        }
+        .gallery-label {
+            padding: 4px 6px;
+            font-size: 10px;
+            text-align: center;
+            color: var(--text-dim);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* ── Events panel ──────────── */
+        .events-panel { flex: 0 0 auto; max-height: 220px; }
+
+        .event-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 6px 8px;
+            border-radius: 6px;
+            margin-bottom: 3px;
+            font-size: 12px;
+            animation: fadeIn 0.3s ease;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .event-icon {
+            flex-shrink: 0;
+            width: 20px; height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+        }
+        .event-new .event-icon {
+            background: rgba(255, 159, 67, 0.2);
+            color: var(--new-person);
+        }
+        .event-return .event-icon {
+            background: rgba(0, 212, 170, 0.2);
+            color: var(--returned);
+        }
+        .event-left .event-icon {
+            background: rgba(255, 107, 107, 0.2);
+            color: var(--warn);
+        }
+        .event-time {
+            color: var(--text-dim);
+            font-size: 10px;
+            white-space: nowrap;
+        }
+        .event-text {
+            flex: 1;
+            color: var(--text);
+            line-height: 1.4;
+        }
+
+        /* ── Modal ─────────────────── */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 200;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: var(--surface);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            width: 460px;
+            max-height: 80vh;
+            overflow-y: auto;
+            padding: 24px;
+        }
+        .modal h2 {
+            font-size: 18px;
+            margin-bottom: 16px;
+            color: var(--accent);
+        }
+        .modal-close {
+            float: right;
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            font-size: 20px;
+            cursor: pointer;
+        }
+        .modal-close:hover { color: var(--text); }
+        .modal-thumbs {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin: 12px 0;
+        }
+        .modal-thumbs img {
+            width: 100%;
+            border-radius: 8px;
+            aspect-ratio: 1;
+            object-fit: cover;
+        }
+        .modal-field {
+            margin: 12px 0;
+        }
+        .modal-field label {
+            font-size: 12px;
+            color: var(--text-dim);
+            display: block;
+            margin-bottom: 4px;
+        }
+        .modal-field input {
+            width: 100%;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--surface2);
+            color: var(--text);
+            font-size: 14px;
+            outline: none;
+        }
+        .modal-field input:focus { border-color: var(--accent); }
+        .modal-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin: 12px 0;
+        }
+        .modal-stat {
+            background: var(--surface2);
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .modal-stat-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--accent);
+        }
+        .modal-stat-label {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 2px;
+        }
+
+        /* ── Scrollbar ─────────────── */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+        /* ── Responsive ────────────── */
+        @media (max-width: 900px) {
+            .main {
+                grid-template-columns: 1fr;
+                grid-template-rows: 50vh auto;
+            }
+            .video-section { grid-row: auto; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+    <h1>
+        <span class="dot"></span>
+        Person Detection & Re-ID
+    </h1>
+    <div class="header-stats">
+        <div>FPS: <span class="stat-value" id="hdr-fps">0</span></div>
+        <div>In Frame: <span class="stat-value" id="hdr-persons">0</span></div>
+        <div>Total Known: <span class="stat-value" id="hdr-total">0</span></div>
+        <div>Active: <span class="stat-value" id="hdr-active">0</span></div>
+        <div>Upgrades: <span class="stat-value" id="hdr-upgrades">0</span></div>
+    </div>
+    <div class="ws-status">
+        <div class="ws-dot" id="ws-dot"></div>
+        <span id="ws-label">Connecting…</span>
+    </div>
+</div>
+
+<!-- Main Layout -->
+<div class="main">
+    <!-- Video Feed -->
+    <div class="video-section">
+        <div class="video-title">
+            <span>📹 Live Feed</span>
+            <span id="video-res" style="color:var(--text-dim);font-size:11px;"></span>
+        </div>
+        <div class="video-container">
+            <img id="video-stream" src="/video_feed" alt="Live feed">
+            <div class="video-overlay">
+                <div class="overlay-badge" id="overlay-fps">FPS: --</div>
+                <div class="overlay-badge" id="overlay-persons">Persons: 0</div>
+                <div class="overlay-badge" id="overlay-motion">Motion: 0%</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <!-- Active Persons -->
+        <div class="panel active-panel">
+            <div class="panel-header">
+                👤 Active Persons
+                <span class="panel-count" id="active-count">0</span>
+            </div>
+            <div class="panel-body" id="active-list"></div>
+        </div>
+
+        <!-- Person Gallery -->
+        <div class="panel gallery-panel">
+            <div class="panel-header">
+                🗂 Person Gallery
+                <span class="panel-count" id="gallery-count">0</span>
+            </div>
+            <div class="panel-body">
+                <div class="gallery-grid" id="gallery-grid"></div>
+            </div>
+        </div>
+
+        <!-- Events Feed -->
+        <div class="panel events-panel">
+            <div class="panel-header">
+                📋 Events
+                <span class="panel-count" id="event-count">0</span>
+            </div>
+            <div class="panel-body" id="events-list"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Person Detail Modal -->
+<div class="modal-overlay" id="person-modal">
+    <div class="modal">
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+        <h2 id="modal-title">Person Details</h2>
+        <div class="modal-stats" id="modal-stats"></div>
+        <div class="modal-field">
+            <label>Name</label>
+            <input id="modal-name" type="text" placeholder="Enter name…"
+                   onkeydown="if(event.key==='Enter') renamePerson()">
+        </div>
+        <div class="modal-thumbs" id="modal-thumbs"></div>
+    </div>
+</div>
+
+<script>
+    // ── State ──
+    let ws = null;
+    let allEvents = [];
+    let currentPersonId = null;
+    let upgradeCount = 0;
+    const eventCountEl = document.getElementById('event-count');
+
+    // ── WebSocket ──
+    function connectWS() {
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${protocol}//${location.host}/ws`);
+
+        ws.onopen = () => {
+            document.getElementById('ws-dot').classList.add('connected');
+            document.getElementById('ws-label').textContent = 'Connected';
+        };
+
+        ws.onclose = () => {
+            document.getElementById('ws-dot').classList.remove('connected');
+            document.getElementById('ws-label').textContent = 'Reconnecting…';
+            setTimeout(connectWS, 2000);
+        };
+
+        ws.onmessage = (evt) => {
+            try {
+                const data = JSON.parse(evt.data);
+                if (data.type === 'update') updateDashboard(data);
+            } catch(e) { console.error('WS parse error:', e); }
+        };
+    }
+
+    function updateDashboard(data) {
+        // Header stats
+        document.getElementById('hdr-fps').textContent = data.fps || 0;
+        document.getElementById('hdr-persons').textContent = data.persons_in_frame?.length || 0;
+        document.getElementById('hdr-total').textContent = data.total_persons_db || 0;
+        document.getElementById('hdr-active').textContent = data.active_sessions || 0;
+
+        // Overlay badges
+        document.getElementById('overlay-fps').textContent = `FPS: ${data.fps || 0}`;
+        document.getElementById('overlay-persons').textContent = `Persons: ${data.persons_in_frame?.length || 0}`;
+
+        // Active persons list
+        updateActivePersons(data.persons_in_frame || []);
+
+        // Gallery
+        updateGallery(data.gallery || []);
+
+        // Events
+        if (data.new_events && data.new_events.length > 0) {
+            data.new_events.forEach(e => {
+                if (e.type === 'capture_upgraded') upgradeCount++;
+            });
+            document.getElementById('hdr-upgrades').textContent = upgradeCount;
+            allEvents = [...allEvents, ...data.new_events].slice(-100);
+            updateEvents();
+        }
+    }
+
+    function updateActivePersons(persons) {
+        const container = document.getElementById('active-list');
+        document.getElementById('active-count').textContent = persons.length;
+
+        if (persons.length === 0) {
+            container.innerHTML = '<div style="text-align:center;color:var(--text-dim);padding:16px;font-size:12px;">No persons detected</div>';
+            return;
+        }
+
+        container.innerHTML = persons.map(p => {
+            const name = p.person_name || `Track #${p.track_id}`;
+            const visits = p.total_visits || 0;
+            const identified = !!p.person_id;
+            return `
+                <div class="person-card" ${identified ? `onclick="openModal('${p.person_id}')"` : ''}>
+                    <div class="person-avatar">${identified ? '🧑' : '❓'}</div>
+                    <div class="person-info">
+                        <div class="person-name">${name}</div>
+                        <div class="person-meta">Track ${p.track_id} · ${p.duration_s?.toFixed(1) || 0}s</div>
+                    </div>
+                    <span class="person-badge badge-active">Active</span>
+                    ${visits > 1 ? `<span class="person-badge badge-visits">×${visits}</span>` : ''}
+                </div>
+            `;
+        }).join('');
+    }
+
+    function updateGallery(gallery) {
+        const grid = document.getElementById('gallery-grid');
+        document.getElementById('gallery-count').textContent = gallery.length;
+
+        if (gallery.length === 0) {
+            grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-dim);padding:20px;font-size:12px;">Faces will appear here when detected</div>';
+            return;
+        }
+
+        grid.innerHTML = gallery.map(p => {
+            return `
+                <div class="gallery-item" onclick="openModal('${p.person_id}')">
+                    <div style="width:100%;aspect-ratio:1;background:var(--surface);display:flex;align-items:center;justify-content:center;font-size:28px;">
+                        🧑
+                    </div>
+                    <div class="gallery-label" title="${p.name}">
+                        ${p.name}
+                        ${p.total_visits > 1 ? `<br><span style="color:var(--accent2)">×${p.total_visits} visits</span>` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        // Load actual thumbnails — prefer the best capture
+        gallery.forEach(p => {
+            if (p.capture_count > 0 || p.has_best_capture) {
+                fetch(`/api/persons/${p.person_id}/thumbnails`)
+                    .then(r => r.json())
+                    .then(data => {
+                        const imgUrl = data.best_capture || (data.thumbnails && data.thumbnails.length > 0 ? data.thumbnails[data.thumbnails.length-1] : null);
+                        if (imgUrl) {
+                            const item = grid.querySelector(`[onclick="openModal('${p.person_id}')"]`);
+                            if (item) {
+                                const imgContainer = item.querySelector('div');
+                                imgContainer.innerHTML = `<img class="gallery-thumb" src="${imgUrl}" alt="${p.name}">`;
+                            }
+                        }
+                    })
+                    .catch(() => {});
+            }
+        });
+    }
+
+    function updateEvents() {
+        const container = document.getElementById('events-list');
+        eventCountEl.textContent = allEvents.length;
+
+        const recent = allEvents.slice(-30).reverse();
+        container.innerHTML = recent.map(e => {
+            let iconClass = 'event-new';
+            let icon = '🆕';
+            let text = '';
+
+            if (e.type === 'new_person') {
+                iconClass = 'event-new';
+                icon = '🆕';
+                text = `<strong>${e.name}</strong> first detected (clarity: ${e.clarity || 0})`;
+            } else if (e.type === 'person_returned') {
+                iconClass = 'event-return';
+                icon = '🔄';
+                text = `<strong>${e.name}</strong> returned (dist: ${(e.distance || 0).toFixed(3)}, visit #${e.total_visits})${e.upgraded ? ' ⬆ better capture!' : ''}`;
+            } else if (e.type === 'person_left') {
+                iconClass = 'event-left';
+                icon = '👋';
+                text = `<strong>${e.name}</strong> left (${e.duration_s}s, best clarity: ${e.best_clarity || 0})`;
+            } else if (e.type === 'capture_upgraded') {
+                iconClass = 'event-return';
+                icon = '📸';
+                text = `<strong>${e.name}</strong> best capture upgraded (clarity: ${e.clarity || 0})`;
+            }
+
+            return `
+                <div class="event-item ${iconClass}">
+                    <div class="event-icon">${icon}</div>
+                    <div class="event-text">${text}</div>
+                    <div class="event-time">${e.timestamp_str || ''}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // ── Person Detail Modal ──
+    async function openModal(personId) {
+        currentPersonId = personId;
+        try {
+            const res = await fetch(`/api/persons/${personId}`);
+            const person = await res.json();
+
+            document.getElementById('modal-title').textContent = person.name || 'Person Details';
+            document.getElementById('modal-name').value = person.name || '';
+
+            document.getElementById('modal-stats').innerHTML = `
+                <div class="modal-stat">
+                    <div class="modal-stat-value">${person.total_visits || 0}</div>
+                    <div class="modal-stat-label">Total Visits</div>
+                </div>
+                <div class="modal-stat">
+                    <div class="modal-stat-value">${person.total_duration_s || 0}s</div>
+                    <div class="modal-stat-label">Total Time</div>
+                </div>
+                <div class="modal-stat">
+                    <div class="modal-stat-value">${person.best_clarity || 0}</div>
+                    <div class="modal-stat-label">Best Clarity</div>
+                </div>
+                <div class="modal-stat">
+                    <div class="modal-stat-value">${person.capture_count || 0}</div>
+                    <div class="modal-stat-label">Total Captures</div>
+                </div>
+                <div class="modal-stat">
+                    <div class="modal-stat-value">${person.first_seen_str || ''}</div>
+                    <div class="modal-stat-label">First Seen</div>
+                </div>
+                <div class="modal-stat">
+                    <div class="modal-stat-value">${person.last_seen_str || ''}</div>
+                    <div class="modal-stat-label">Last Seen</div>
+                </div>
+            `;
+
+            // Thumbnails — show best capture first with a highlight
+            const thumbs = person.thumbnails || [];
+            const bestCap = person.best_capture || null;
+            let thumbHtml = '';
+            if (bestCap) {
+                thumbHtml += `<img src="${bestCap}" alt="best face" style="border:2px solid var(--accent);border-radius:8px;">`;
+            }
+            thumbs.forEach(url => {
+                if (url !== bestCap) {
+                    thumbHtml += `<img src="${url}" alt="face">`;
+                }
+            });
+            document.getElementById('modal-thumbs').innerHTML = thumbHtml
+                || '<div style="grid-column:1/-1;text-align:center;color:var(--text-dim);padding:16px;">No face captures yet</div>';
+
+            document.getElementById('person-modal').classList.add('active');
+        } catch(e) {
+            console.error('Failed to open modal:', e);
+        }
+    }
+
+    function closeModal() {
+        document.getElementById('person-modal').classList.remove('active');
+        currentPersonId = null;
+    }
+
+    async function renamePerson() {
+        if (!currentPersonId) return;
+        const newName = document.getElementById('modal-name').value.trim();
+        if (!newName) return;
+
+        try {
+            await fetch(`/api/persons/${currentPersonId}/rename?name=${encodeURIComponent(newName)}`, { method: 'POST' });
+            document.getElementById('modal-title').textContent = newName;
+            // Also send via WebSocket
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: 'rename', person_id: currentPersonId, name: newName }));
+            }
+        } catch(e) {
+            console.error('Rename failed:', e);
+        }
+    }
+
+    // Close modal on overlay click
+    document.getElementById('person-modal').addEventListener('click', (e) => {
+        if (e.target.classList.contains('modal-overlay')) closeModal();
+    });
+
+    // ── Init ──
+    connectWS();
+
+    // Periodically reload video feed to prevent stale connection
+    setInterval(() => {
+        const img = document.getElementById('video-stream');
+        if (img && !img.complete) {
+            // Refresh the MJPEG stream if stalled
+        }
+    }, 10000);
+</script>
+</body>
+</html>
